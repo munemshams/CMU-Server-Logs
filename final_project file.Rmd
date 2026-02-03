@@ -1,0 +1,594 @@
+---
+title: "R Notebook"
+output:
+  word_document: default
+  html_notebook: default
+---
+BIS 581
+
+
+###Data Preparation Steps prior to analysis###
+
+
+
+# loading libraries
+```{r chunk 1 libs, echo=FALSE, message=FALSE, warning=FALSE}
+library(tidytext)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(ggraph)
+library(igraph)
+```
+
+# Loading the data sets into R
+
+```{r chunk 2}
+VDI <- read.csv("vdi_serverlogs.csv", header=TRUE, stringsAsFactors = FALSE)
+
+apps <- read.csv("vdi_statsapps.csv", header=TRUE, stringsAsFactors = FALSE)
+```
+
+# Joinging the two data sets together
+
+```{r chunk 3}
+apps$VDI_ID <- as.integer(apps$VDI_ID)
+usage <-  VDI %>% inner_join(apps)
+
+```
+
+
+# Fixing the date format and converting date columns
+
+Since we need to filter for "year 2015", we first need to convert the date columns in our new "usage" dataset so we can identify which records are from 2015. By running the code chunk below, we can change the date data in the usage dataset. Now the logon_DTS column becomes a proper date-time column. The logon_date column extracts just the date part (for daily usage analysis) and the logon_year column extracts just the year (so we can filter for 2015). We can see the dates are now properly formatted as "2011-04-15" whereas in the raw data set the dates were in the format "4/15/11" where the year was only listed as 11 instead of 2011. If we did not filter this then R would interpret it as the year 11 AD instead of 2011 AD.
+
+
+```{r chunk 4}
+
+# Converting the date columns in the USAGE dataset
+usage <- usage %>%
+  mutate(
+    logon_DTS = as.POSIXct(logon_DTS, format = "%m/%d/%y %H:%M"),
+    logon_date = as.Date(logon_DTS),
+    logon_year = format(logon_date, "%Y")
+  )
+```
+
+
+# Checking the years in our dataset and looking at the record for 2015
+
+After running the code below we found out that we have 299,998 records from 2015. So we can proceed with the 2015 analysis as required.
+
+```{r chunk 5}
+
+year_summary <- usage %>%
+  count(logon_year) %>%
+  arrange(logon_year)
+
+print(year_summary)
+
+```
+
+# Applying necessary filters
+
+```{r chunk 6}
+# Applying the required filters 
+usage_2015_vdi <- usage %>%
+  filter(logon_year == "2015",
+         startsWith(comp_name, "CMU"))
+
+# Taking a look at the data set after filtering
+cat("Total records after filtering:", nrow(usage_2015_vdi), "\n")
+cat("Unique users in filtered data:", n_distinct(usage_2015_vdi$userid), "\n")
+cat("Date range:", as.character(min(usage_2015_vdi$logon_date)), "to", 
+    as.character(max(usage_2015_vdi$logon_date)), "\n")
+```
+
+#Adressing duplicate user IDs
+
+To ensure accurate user counts, I used n_distinct(userid) which correctly counts unique users regardless of how many applications they used during their session. I will not do any filtering for duplicate user IDs because for user counts we can use the function n_distinct to avoid any errors with user ID counts. The issue here is that after a user logs into a session he or she may use different applications which results in duplicate entries for username, login and logout time. But the entries are all necessary and should not be filtered out because they are needed to analyze the usage of the applications. Although the user ID, and login and logout times for the machines are the same the apps are different and the start and stop time of the apps are also necessary to understand how long each apps are being used. So  we should be careful with our filters and apply relevant filters where they are needed. The goal of applying filters in our data is to make our analysis easier, not to just make the data set shorter so that we can finish our work quickly.
+
+#Data quality check
+
+After filtering our data set according to our requirements which are:
+1. The year 2015
+2. For VDI Machines only
+ 
+We did a quality check on our filtered data set So that We can dive into our analysis. After checking the data quality, our key findings are:
+
+The negatives:
+
+1. 15.97% of application sessions are incomplete (36,319 records with "1900-01-01" stop times). This means we cannot calculate accurate application usage duration for these records and could affect any analysis of application usage. Unrealistic values mean poor data quality.
+
+2. CPU data shows no missing values but contains negative values. CPU usage is shown as percentage and can never have a negative value. So this will affect our Average CPU Usage analysis. Once again while there are no missing values, the data quality is poor due to unrealistic negative values.
+
+3. No data for the fall semester. The data set covers January to August but there is no data for the remainder of the year.
+
+The Positives:
+
+1. High user engagement variation was observed with an average of 15 sessions per user. The highest number of sessions by a single user was 348 which means one single user had 348 separate VDI sessions during the 2015 period. There were 555 users (18.4% of total) who had only one session.
+
+2. No missing values in any columns.
+
+3. No sessions with logout time before login. Otherwise that would be another major quality issue.
+
+4. Good data coverage from January to August 2015. 
+
+```{r chunk 7}
+
+# 1. Checking for missing values
+cat("1. MISSING VALUES ANALYSIS: No Missing Values\n")
+missing_summary <- data.frame(
+  Column = names(usage_2015_vdi),
+  Missing_Count = colSums(is.na(usage_2015_vdi)),
+  Missing_Percentage = round(colSums(is.na(usage_2015_vdi)) / nrow(usage_2015_vdi) * 100, 2)
+)
+print(missing_summary)
+cat("\n")
+
+# 2. Checking for duplicate application records within sessions
+cat("2. DUPLICATE RECORDS ANALYSIS:\n")
+total_records <- nrow(usage_2015_vdi)
+unique_sessions <- n_distinct(usage_2015_vdi$VDI_ID)
+cat("Total records:", total_records, "\n")
+cat("Unique VDI sessions:", unique_sessions, "\n")
+cat("Average applications per session:", round(total_records / unique_sessions, 2), "\n")
+cat("\n")
+
+# 3. Checking date ranges and validity
+cat("3. DATE VALIDITY CHECK:\n")
+cat("Logon date range:", as.character(min(usage_2015_vdi$logon_date)), "to", 
+    as.character(max(usage_2015_vdi$logon_date)), "\n")
+
+# Checking for illogical dates (logout before logon)
+invalid_sessions <- usage_2015_vdi %>%
+  mutate(logout_DTS = as.POSIXct(logout_DTS, format = "%m/%d/%y %H:%M")) %>%
+  filter(logout_DTS < logon_DTS) %>%
+  nrow()
+
+cat("Sessions with logout before logon:", invalid_sessions, "\n")
+
+# 4. Checking application stop times for "1900-01-01" placeholders
+cat("4. SESSIONS WITH WRONG STOP TIMES:\n")
+incomplete_app_sessions <- sum(usage_2015_vdi$stop == "1900-01-01 00:00:00", na.rm = TRUE)
+cat("Application sessions with '1900-01-01' stop time (incomplete):", incomplete_app_sessions, "\n")
+cat("Percentage of incomplete app sessions:", round(incomplete_app_sessions / nrow(usage_2015_vdi) * 100, 2), "%\n")
+cat("\n")
+
+# 5. Checking CPU data availability
+cat("5. CPU DATA AVAILABILITY:\n")
+cpu_records_with_data <- sum(!is.na(usage_2015_vdi$avg_cpu))
+cat("Records with CPU data:", cpu_records_with_data, "/", nrow(usage_2015_vdi), "\n")
+cat("Percentage with CPU data:", round(cpu_records_with_data / nrow(usage_2015_vdi) * 100, 2), "%\n")
+
+# 6. Checking for negative CPU values
+negative_cpu_records <- sum(usage_2015_vdi$avg_cpu < 0, na.rm = TRUE)
+cat("Records with negative CPU values:", negative_cpu_records, "/", cpu_records_with_data, "\n")
+cat("Percentage of CPU data that is negative:", round(negative_cpu_records / cpu_records_with_data * 100, 2), "%\n")
+```
+
+
+
+
+
+### Question 1- How many users were in the system in total?
+
+The total number of users in the system in the year 2015 was 3013. Since I was provided with a tip to pay attention to distinction of a user being logged in versus a user launching and using different applications within the session, in this question I counted the total number of users in the year 2015 but I also provided some extra insight about the usage of different apps. The following code chunk provides us with a bar chart that shows both the total number of users in the system as well as the frequency of application usage for different applications. We created the bar chart by using the top 10 apps based on the count frequency of the apps.
+
+```{r chunk 8}
+# Finding total number of users
+
+total_users <- n_distinct(usage_2015_vdi$userid)
+
+cat("Total unique users on VDI system in 2015:", total_users, "\n\n")
+
+
+# Calculate top applications by usage frequency (not unique users)
+top_apps_by_usage <- usage_2015_vdi %>%
+  count(app_name, sort = TRUE) %>%
+  head(10)  # Top 6 most frequently used applications
+
+# Create the comparison data
+comparison_data <- bind_rows(
+  data.frame(
+    category = "TOTAL NUMBER OF USERS",
+    count = total_users,
+    type = "Total Users"
+  ),
+  top_apps_by_usage %>%
+    mutate(
+      category = toupper(app_name),
+      count = n,
+      type = "Application Usage frequency"
+    ) %>%
+    select(category, count, type)
+)
+
+
+# Creating a visualization for number of users
+ggplot(comparison_data, aes(x = reorder(category, count), y = count, fill = type)) +
+  geom_col(alpha = 0.8) +
+  geom_text(aes(label = scales::comma(count)), 
+            hjust = -0.1, size = 4, color = "black", fontface = "bold") +
+  coord_flip() +
+  scale_fill_manual(values = c("Total Users" = "blue4", "Application Usage frequency" = "pink3")) +
+  labs(
+    title = "Total Number of Users vs Most Used Applications",
+    x = NULL,
+    y = "Count",
+    fill = "Metric Type",
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
+    plot.subtitle = element_text(color = "gray40", size = 11, hjust = 0.5),
+    plot.caption = element_text(color = "red", size = 8),
+    legend.position = "top",
+    axis.text.y = element_text(size = 10, face = "bold")
+  ) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.15)))
+
+```
+
+
+## Question 2- What is the average number of users per day?
+
+This question seemed a little vague to me since I couldn't properly understand what per day meant here. Does it mean per day of the week like average users on sunday or monday or does it mean average users per day as in average number of users everyday. So I calculated both.
+
+At first, I calculated the number of unique users per day first.Then I calculated the average users per day. The average number of users per day is 139. But the Median is 62. This difference between the average and the median is explained better when we look at the visualization. Very few students take summer classes which leads to a massive decrease in the usage of the VDI system or any other school resources in general. We can clearly see that during the Summer beginning from mid-May until the end of August the number of users has always been below 100 which is lower than the average number of users from January to August which is 139. So there is a massive fluctuation in the number of users during regular school semester and during the summer.
+
+Finally, as a bonus I calculated the average number of users per day based on each day of the week. This means the average number of users on Sunday or Monday or any other day of the week. We can see from the bar chart that Tuesday is the peak usage day with an average of 191 users. The weekends are obviously the slowest days with more than 50% less usage when compared to the weekdays. Another observation is that there is a massive decline on Fridays which is just before the weekend. So basically heavy traffic on every weekday and then a decline on Friday leading to low traffic on Saturday and Sunday.
+
+```{r chunk 9}
+
+# Calculating unique users per day
+daily_users <- usage_2015_vdi %>%
+  distinct(logon_date, userid) %>%  
+  group_by(logon_date) %>%
+  summarise(daily_unique_users = n()) %>%
+  arrange(logon_date)
+
+# Calculating the average
+avg_users_per_day <- round(mean(daily_users$daily_unique_users))  
+
+# Editing the code by rounding the results in the summary after running the code once
+daily_summary <- daily_users %>%
+  summarise(
+    min_users = min(daily_unique_users),
+    max_users = max(daily_unique_users),
+    median_users = median(daily_unique_users),
+    avg_users = round(mean(daily_unique_users)),  
+    total_days = n()
+  )
+
+#Showing the results 
+print(daily_summary)
+
+# Providing Visualization
+time_series_analysis <- ggplot(daily_users, aes(x = logon_date, y = daily_unique_users)) +
+  geom_line(color = "#2E86AB", size = 0.8, alpha = 0.8) +
+  geom_point(color = "#2E86AB", size = 1, alpha = 0.6) +
+  geom_hline(yintercept = avg_users_per_day, linetype = "solid", color = "black", size = 1) +
+  
+  # FIXED: Using annotate() instead of geom_text() for single labels
+  annotate("text", x = min(daily_users$logon_date), y = avg_users_per_day, 
+           label = paste("Average:", avg_users_per_day, "users/day"),
+           hjust = 0, vjust = -0.5, color = "black", fontface = "bold", size = 4) +
+  
+  labs(
+    title = "Number of Daily Users in 2015",
+    subtitle = "Daily fluctuation and average usage pattern",
+    x = "Date",
+    y = "Number of Unique Users"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
+    plot.subtitle = element_text(color = "gray40", size = 11, hjust = 0.5)
+  ) +
+  # Fix x-axis: Show all months
+  scale_x_date(
+    date_breaks = "1 month",
+    date_labels = "%b"
+  ) +
+  # Fix y-axis: Show breaks every 100 from 0 to 600
+  scale_y_continuous(
+    breaks = seq(0, 600, by = 100),
+    limits = c(0, 600)
+  )
+
+print(time_series_analysis)
+
+# Calculating average users per day according to day of the week
+daily_users %>%
+  mutate(day_of_week = weekdays(logon_date)) %>%
+  group_by(day_of_week) %>%
+  summarise(avg_users = round(mean(daily_unique_users))) %>%
+  arrange(desc(avg_users)) %>%
+  print()
+
+# Creating a Day of the Week Average Users Visualization
+day_of_week_avg <- daily_users %>%
+  mutate(day_of_week = weekdays(logon_date)) %>%
+  group_by(day_of_week) %>%
+  summarise(avg_users = round(mean(daily_unique_users)))
+
+# Ordering days properly (instead of alphabetical)
+day_levels <- c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+day_of_week_avg$day_of_week <- factor(day_of_week_avg$day_of_week, levels = day_levels)
+
+# Creating the bar chart
+ggplot(day_of_week_avg, aes(x = day_of_week, y = avg_users)) +
+  geom_col(fill = "#2E86AB", alpha = 0.8) +
+  geom_text(aes(label = paste(avg_users, "users")), 
+            vjust = -0.5, color = "#2E86AB", fontface = "bold", size = 4) +
+  labs(
+    title = "Average VDI Users by Day of Week - 2015",
+    subtitle = "Tuesday is the busiest day; weekends show significantly lower usage",
+    x = "Day of Week",
+    y = "Average Number of Users"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
+    plot.subtitle = element_text(color = "gray40", size = 11, hjust = 0.5),
+    axis.text.x = element_text(size = 10)
+  ) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.1)), limits = c(0, 220))
+
+```
+
+
+# Question 3- What is the highest number of users per day?
+
+Once again for this question, just like the previous one I calculated the highest number of users in a day among all the total days available in the data set which is 223 days. So the highest number of users per day is 540 which was recorded on April 28(Tuesday ). 
+
+Afterwards, I also calculated the highest number of users on every day of the week like Sunday or Monday and I provided a visualization for it as well. The bar chart shows resemblance to the previous bar chart that showed average number of users on each day of the week. 
+
+As a bonus I also provided another visualization after calculating the top 10 busiest days and sorting them according to both the dates and the days of the week. We can observe from this graph that The Mondays and Tuesdays are the busiest since among the top 10 busiest days 5 were Tuesdays and 3 were Mondays. The remaining two were a Wednesday and a Thursday.
+
+```{r chunk 10}
+
+# Calculating unique users per day (data preparation)
+daily_users <- usage_2015_vdi %>%
+  distinct(logon_date, userid) %>%  
+  group_by(logon_date) %>%
+  summarise(daily_unique_users = n()) %>%
+  arrange(logon_date)
+
+#Showing the results 
+print(daily_summary)
+
+
+# Calculating maximum users for each day of week
+max_by_dow <- daily_users %>%
+  mutate(day_of_week = weekdays(logon_date)) %>%
+  group_by(day_of_week) %>%
+  summarise(max_users = max(daily_unique_users)) %>%
+  arrange(desc(max_users))
+
+print(max_by_dow)
+
+# Order days properly
+dow_levels <- c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+max_by_dow$day_of_week <- factor(max_by_dow$day_of_week, levels = dow_levels)
+
+# Create bar chart
+ggplot(max_by_dow, aes(x = day_of_week, y = max_users)) +
+  geom_col(fill = "#A23B72", alpha = 0.8) +
+  geom_text(aes(label = paste(max_users, "users")), 
+            vjust = -0.5, color = "#A23B72", fontface = "bold", size = 4) +
+  labs(
+    title = "Highest Number of Users recorded on each day of the Week in 2015",
+    x = "Day of Week",
+    y = "Maximum Number of Users"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
+    plot.subtitle = element_text(color = "gray40", size = 11, hjust = 0.5),
+    axis.text.x = element_text(size = 10)
+  ) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.1)), limits = c(0, 600))
+
+
+
+# Bonus Insight: Geting the top 10 busiest days with both date and day of the week
+top_days <- daily_users %>%
+  arrange(desc(daily_unique_users)) %>%
+  head(10) %>%
+  mutate(
+    day_of_week = weekdays(logon_date),
+    date_with_dow = paste(format(logon_date, "%B %d"), " (", day_of_week, ")", sep = "")
+  )
+
+print(top_days %>% select(logon_date, day_of_week, daily_unique_users))
+
+# Creating the visualization
+ggplot(top_days, aes(x = reorder(date_with_dow, daily_unique_users), y = daily_unique_users)) +
+  geom_col(fill = "#A23B72", alpha = 0.8) +
+  geom_text(aes(label = paste(daily_unique_users, "users")), 
+            hjust = -0.1, color = "#A23B72", fontface = "bold", size = 4) +
+  coord_flip() +
+  labs(
+    title = "Top 10 Busiest days in 2015",
+    subtitle = "Peak usage days showing both date and day of the week",
+    x = "Date (Day of Week)",
+    y = "Number of Unique Users"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
+    plot.subtitle = element_text(color = "gray40", size = 11, hjust = 0.5),
+    axis.text.y = element_text(size = 10)
+  ) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.15)), limits = c(0, 600))
+
+
+```
+
+## Specific Additional Question (My Last name is Shams which starts with an "S")
+
+#top 5 users by length of time logged in, average CPU usage for those users 
+
+# Part 1- The top 5 users by length of time logged in
+
+For the first part of this question which is determining the top 5 users by length of time logged in. For this we need to convert the logout dates just how converted the login dates.Because to find the duration of sessions we need both the login and the logout time. The summary of the top 5 users are:
+
+userid18508: 1,261 hours (271 sessions)
+
+userid23439: 738 hours (176 sessions)
+
+userid18334: 544 hours (128 sessions)
+
+userid25630: 520 hours (251 sessions)
+
+userid20875: 459 hours (167 sessions)
+
+
+
+
+```{r chunk 11}
+# Converting the logout dates just how we converted the login dates
+usage_2015_vdi <- usage_2015_vdi %>%
+  mutate(
+    logout_DTS = as.POSIXct(logout_DTS, format = "%m/%d/%y %H:%M")
+  )
+
+# Calculating session durations 
+usage_2015_vdi <- usage_2015_vdi %>%
+  mutate(
+    session_duration_hours = as.numeric(difftime(logout_DTS, logon_DTS, units = "hours"))
+  )
+
+# Calculating total time logged in per user (using distinct sessions)
+user_time <- usage_2015_vdi %>%
+  distinct(VDI_ID, userid, logon_DTS, logout_DTS, session_duration_hours) %>%  # Remove app duplication
+  group_by(userid) %>%
+  summarise(
+    total_hours_logged = round(sum(session_duration_hours, na.rm = TRUE), 1),
+    total_sessions = n(),
+    avg_session_length = round(mean(session_duration_hours, na.rm = TRUE), 1)
+  ) %>%
+  arrange(desc(total_hours_logged)) %>%
+  head(5)
+
+print(user_time)
+
+# Visualization for Top 5 Users by Time Logged In
+
+ggplot(user_time, aes(x = reorder(userid, total_hours_logged), y = total_hours_logged)) +
+  geom_col(fill = "#2E86AB", alpha = 0.8) +
+  geom_text(aes(label = paste(total_hours_logged, "hours")), 
+            hjust = -0.1, color = "#2E86AB", fontface = "bold", size = 4) +
+  coord_flip() +
+  labs(
+    title = "Top 5 Users based on Total Time Logged In (2015)",
+    x = "User ID",
+    y = "Total Hours Logged In"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
+    plot.subtitle = element_text(color = "gray40", size = 11, hjust = 0.5)
+  ) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.1)), limits = c(0, 1400))
+
+
+```
+
+# Part 2- Calculating Average CPU Usage for the top 5 users
+
+As we have mentioned in our data preparation section, the CPU usage data has negative values that question the credibility of the data. So for the top 5 users we calculated the average CPU usage twice, once with the data that we were provided with including the negative values and then another one by getting rid of the negative values and only using the positive values. I also provided a bar chart for visual representation that highlights the CPU usage for the users as well as the difference in results for calculating CPU usage using both approaches.
+
+```{r chunk 12}
+# Getting  the top 5 user IDs from our previous results
+top_5_users <- user_time$userid
+
+# CPU usage with ALL data (including negative values)
+cpu_all_data <- usage_2015_vdi %>%
+  filter(userid %in% top_5_users) %>%
+  group_by(userid) %>%
+  summarise(
+    avg_cpu_all = round(mean(avg_cpu, na.rm = TRUE), 1),
+    total_cpu_records = n(),
+    negative_cpu_records = sum(avg_cpu < 0, na.rm = TRUE),
+    negative_cpu_percent = round(sum(avg_cpu < 0, na.rm = TRUE) / n() * 100, 1)
+  )
+
+print(cpu_all_data)
+
+# CPU usage with ONLY POSITIVE values
+
+cpu_positive_only <- usage_2015_vdi %>%
+  filter(userid %in% top_5_users, avg_cpu >= 0) %>%
+  group_by(userid) %>%
+  summarise(
+    avg_cpu_positive = round(mean(avg_cpu, na.rm = TRUE), 1),
+    positive_cpu_records = n()
+  )
+
+print(cpu_positive_only)
+
+# Combine all results
+final_cpu_analysis <- user_time %>%
+  left_join(cpu_all_data, by = "userid") %>%
+  left_join(cpu_positive_only, by = "userid") %>%
+  select(userid, total_hours_logged, total_sessions, total_cpu_records, positive_cpu_records, negative_cpu_records, negative_cpu_percent, avg_cpu_all, avg_cpu_positive)
+
+print(final_cpu_analysis)
+
+
+# Preparing data for visualization
+cpu_comparison <- final_cpu_analysis %>%
+  select(userid, avg_cpu_all, avg_cpu_positive, negative_cpu_percent) %>%
+  pivot_longer(cols = c(avg_cpu_all, avg_cpu_positive), 
+               names_to = "calculation_method", 
+               values_to = "cpu_usage") %>%
+  mutate(
+    calculation_method = ifelse(calculation_method == "avg_cpu_all", 
+                               "With Negative Values", 
+                               "Positive Values Only")
+  )
+
+# Creating custom x-axis labels with percentage of negative entries
+custom_labels <- final_cpu_analysis %>%
+  mutate(
+    custom_label = paste0(userid, "\n(", negative_cpu_percent, "% negative)")
+  ) %>%
+  pull(custom_label)
+
+names(custom_labels) <- final_cpu_analysis$userid
+
+# Creating the comparison visualization
+ggplot(cpu_comparison, aes(x = userid, y = cpu_usage, fill = calculation_method)) +
+  geom_col(position = "dodge", alpha = 0.8) +
+  geom_text(aes(label = paste0(cpu_usage, "%"), 
+                y = cpu_usage + 2), 
+            position = position_dodge(width = 0.9),
+            size = 3.5, fontface = "bold") +
+  labs(
+    title = "Comparison of CPU calculations with and without negative values",
+    x = "User ID",
+    y = "Average CPU Usage (%)",
+    fill = "Calculation Method",
+  ) +
+  scale_fill_manual(values = c("With Negative Values" = "#A23B72", "Positive Values Only" = "#2E86AB")) +
+  scale_x_discrete(labels = custom_labels) +  # Use custom labels with negative percentages
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
+    plot.subtitle = element_text(color = "gray40", size = 11, hjust = 0.5),
+    plot.caption = element_text(size = 9),
+    legend.position = "top",
+    axis.text.x = element_text(color = "black", face = "bold", lineheight = 0.8)
+  ) +
+  scale_y_continuous(limits = c(0, max(cpu_comparison$cpu_usage) + 10))
+
+
+
+```
+
+
+
+
