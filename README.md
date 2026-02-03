@@ -13,9 +13,9 @@ The original dataset is hosted externally in this link below:
 https://www.kaggle.com/datasets/munemshariarshams/vdi-server-logs-cmu
 
 # Libraries used in R:
-tidytext
-ggplot2
-dplyr
-tidyr
-ggraph
-igraph
+tidytext,
+ggplot2,
+dplyr,
+tidyr,
+ggraph,
+igraph,
