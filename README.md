@@ -6,7 +6,7 @@ The entire project was conducted in **R Studio**, including:
 - Transformation and reshaping
 - Exploratory data analysis (EDA)
 - Visualization
-- A presentation video for a non-technical audience
+- A presentation video tailored towards a non-technical audience
 
 # Data Source
 The original dataset is hosted externally in this link below:
