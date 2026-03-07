@@ -44,9 +44,6 @@ The analysis follows a structured data analytics workflow:
    - Recommendations for server scaling and load balancing
    - Suggestions for improving system availability during peak usage periods
 
-# Video Presentation
-The video presentation is hosted in this link below:
-https://cmich.webex.com/cmich/ldr.php?RCID=24104455395fd20fd40ece266af89d45
 
 ## Files Included
 
@@ -59,6 +56,10 @@ https://cmich.webex.com/cmich/ldr.php?RCID=24104455395fd20fd40ece266af89d45
 | `My Analysis and Findings.pdf` | Detailed written report explaining the results, insights, and infrastructure recommendations. |
 | `Visuals/` | Folder containing all generated visualizations and charts used in the analysis and presentation. |
 | `README.md` | Project documentation describing the objective, dataset, methods, and results of the project. |
+
+# Video Presentation
+The video presentation is hosted in this link below:
+https://cmich.webex.com/cmich/ldr.php?RCID=24104455395fd20fd40ece266af89d45
 
 # Libraries used in R:
 tidytext,
