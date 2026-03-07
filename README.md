@@ -12,7 +12,7 @@ The entire project was conducted in **R Studio**, including:
 The original dataset is hosted externally in this link below:
 https://www.kaggle.com/datasets/munemshariarshams/vdi-server-logs-cmu
 
-## Project Workflow
+# Project Workflow
 
 The analysis follows a structured data analytics workflow:
 
