@@ -17,32 +17,32 @@ https://www.kaggle.com/datasets/munemshariarshams/vdi-server-logs-cmu
 The analysis follows a structured data analytics workflow:
 
 1. **Data Acquisition**
-   - VDI server log dataset collected from Central Michigan University systems.
-   - Dataset originally contained over **3.1 million observations**.
+- VDI server log dataset collected from Central Michigan University systems.
+- Dataset originally contained over **3.1 million observations**.
 
 2. **Data Cleaning**
-   - Removal of incomplete and invalid records
-   - Standardization of timestamps and usage fields
-   - Filtering corrupted log entries
+- Removal of incomplete and invalid records
+- Standardization of timestamps and usage fields
+- Filtering corrupted log entries
 
 3. **Data Transformation**
-   - Reshaping the dataset for analysis
-   - Creating derived variables related to session duration and usage patterns
+- Reshaping the dataset for analysis
+- Creating derived variables related to session duration and usage patterns
 
 4. **Exploratory Data Analysis (EDA)**
-   - Identifying peak server usage times
-   - Detecting seasonal patterns during academic semesters
-   - Exploring user activity distribution
+- Identifying peak server usage times
+- Detecting seasonal patterns during academic semesters
+- Exploring user activity distribution
 
 5. **Visualization**
-   - Time-series visualizations of server usage
-   - Usage distribution plots
-   - Comparative activity charts
+- Time-series visualizations of server usage
+- Usage distribution plots
+- Comparative activity charts
 
 6. **Insights & Recommendations**
-   - Identification of infrastructure bottlenecks
-   - Recommendations for server scaling and load balancing
-   - Suggestions for improving system availability during peak usage periods
+- Identification of infrastructure bottlenecks
+- Recommendations for server scaling and load balancing
+- Suggestions for improving system availability during peak usage periods
 
 
 # Files Included
